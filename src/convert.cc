@@ -95,6 +95,17 @@ public:
         else if (method == "resize")      image.resize(opts[++i]);
         else if (method == "blurSigma")   image.blur(0, std::stoi(opts[++i]));
         else if (method == "filter")      image.filterType(ToFilterType(opts[++i]));
+        else if (method == "font")        image.font(opts[++i]);
+        else if (method == "pointSize")   image.fontPointsize(size_t(atoi(opts[++i].c_str())));
+        else if (method == "drawText") {
+          std::string origin    = opts[++i];
+          std::string delimiter = "|";
+          std::string _x        = origin.substr(0, origin.find(delimiter));
+          std::string _y        = origin.substr(1, origin.find(delimiter));
+          std::string _text     = origin.substr(2, origin.find(delimiter));
+
+          image.draw(Magick::DrawableText(::atof(_x.c_str()), ::atof(_y.c_str()), _text));
+        }
         else if (method == "extent") {
           gravity = ToGravityType(opts[i + 2]);
           // If there's no gravity
