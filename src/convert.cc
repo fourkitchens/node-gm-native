@@ -50,6 +50,8 @@ public:
         image.read(srcBlob);
       }
 
+      //const Magick::Geometry& loadedImageSize = image.size();
+
       rapidjson::Value::ConstMemberIterator imageSize = document.FindMember("size");
       if (imageSize != document.MemberEnd())
         image.resize(imageSize->value.GetString());
@@ -58,17 +60,43 @@ public:
       if (imageQuality != document.MemberEnd())
         image.quality(imageQuality->value.GetUint());
 
-      rapidjson::Value::ConstMemberIterator font = document.FindMember("font");
-      if (font != document.MemberEnd()) {
-        image.font(font->value["path"].GetString());
-        image.fontPointsize(font->value["pointSize"].GetDouble());
-        //image.fillColor(Magick::Color("rgb(53456, 35209, 30583)"));
-        image.draw(Magick::DrawableText(
-          font->value["xPos"].GetDouble(),
-          font->value["yPos"].GetDouble(),
-          font->value["value"].GetString()
-        ));
+      if (document.HasMember("imageOverlays")) {
+        const rapidjson::Value& imageOverlays = document["imageOverlays"];
+        for (rapidjson::SizeType i = 0; i < imageOverlays.Size(); i++) {
+
+          if (imageOverlays[i]["cover"].GetBool()) {
+            image.draw(Magick::DrawableCompositeImage(
+              imageOverlays[i]["xPos"].GetDouble(),
+              imageOverlays[i]["yPos"].GetDouble(),
+              document["imgResWidth"].GetDouble(),
+              document["imgResHeight"].GetDouble(),
+              imageOverlays[i]["path"].GetString()
+            ));
+          } else {
+            image.draw(Magick::DrawableCompositeImage(
+              imageOverlays[i]["xPos"].GetDouble(),
+              imageOverlays[i]["yPos"].GetDouble(),
+              imageOverlays[i]["path"].GetString()
+            ));
+          }
+        }
       }
+
+      if (document.HasMember("textOverlays")) {
+        const rapidjson::Value& textOverlays = document["textOverlays"];
+        for (rapidjson::SizeType i = 0; i < textOverlays.Size(); i++) {
+          image.font(textOverlays[i]["path"].GetString());
+          image.fontPointsize(textOverlays[i]["pointSize"].GetDouble());
+          image.fillColor(Magick::ColorRGB("rgb(255, 255, 255)"));
+          image.draw(Magick::DrawableText(
+            textOverlays[i]["xPos"].GetDouble(),
+            textOverlays[i]["yPos"].GetDouble(),
+            textOverlays[i]["value"].GetString()
+          ));
+
+        }
+      }
+
 
     } catch (const std::exception &err) {
       SetErrorMessage(err.what());
@@ -100,12 +128,11 @@ NAN_METHOD(Convert) {
   NanScope();
 
   NanCallback *callback = new NanCallback(args[2].As<Function>());
-  Handle<Array> opts =args[1].As<Array>();
 
   if (args[0]->IsString()) {
-    NanAsyncQueueWorker(new ConvertWorker(ToString(args[0]), ToString(opts), callback));
+    NanAsyncQueueWorker(new ConvertWorker(ToString(args[0]), ToString(args[1]), callback));
   } else {
-    NanAsyncQueueWorker(new ConvertWorker(args[0], ToString(opts), callback));
+    NanAsyncQueueWorker(new ConvertWorker(args[0], ToString(args[1]), callback));
   }
 
   NanReturnUndefined();
