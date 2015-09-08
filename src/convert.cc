@@ -6,43 +6,9 @@
 
 #include "./rapidjson/reader.h"
 #include "./rapidjson/document.h"
+#include "./rapidjson/error/en.h"
 
 using namespace v8;
-
-static Magick::GravityType ToGravityType(std::string gravity) {
-  if (gravity == "Center")         return Magick::CenterGravity;
-  else if (gravity == "East")      return Magick::EastGravity;
-  else if (gravity == "Forget")    return Magick::ForgetGravity;
-  else if (gravity == "NorthEast") return Magick::NorthEastGravity;
-  else if (gravity == "North")     return Magick::NorthGravity;
-  else if (gravity == "NorthWest") return Magick::NorthWestGravity;
-  else if (gravity == "SouthEast") return Magick::SouthEastGravity;
-  else if (gravity == "South")     return Magick::SouthGravity;
-  else if (gravity == "SouthWest") return Magick::SouthWestGravity;
-  else if (gravity == "West")      return Magick::WestGravity;
-  else {
-    return Magick::ForgetGravity;
-  }
-}
-
-static Magick::FilterTypes ToFilterType(std::string filter) {
-  if (filter == "Point")          return Magick::PointFilter;
-  else if (filter == "Box")       return Magick::BoxFilter;
-  else if (filter == "Gaussian")  return Magick::GaussianFilter;
-  else {
-    return Magick::LanczosFilter;
-  }
-}
-
-static Magick::InterlaceType ToInterlaceType(std::string interlace) {
-  if (interlace == "Plane")           return Magick::PlaneInterlace;
-  else if (interlace == "No")         return Magick::NoInterlace;
-  else if (interlace == "Line")       return Magick::LineInterlace;
-  else if (interlace == "Partition")  return Magick::PartitionInterlace;
-  else {
-    return Magick::UndefinedInterlace;
-  }
-}
 
 static std::string ToString(Handle<Value> str) {
   return std::string(*NanUtf8String(str));
@@ -50,29 +16,24 @@ static std::string ToString(Handle<Value> str) {
 
 class ConvertWorker : public NanAsyncWorker {
 public:
-  ConvertWorker(std::string src, Handle<Value> options, NanCallback *callback) : NanAsyncWorker(callback), srcFilename(src) {
-    this->Initialize(options);
+  ConvertWorker(std::string src, std::string operations, NanCallback *callback) : NanAsyncWorker(callback), srcFilename(src) {
+    this->Initialize(operations);
   }
 
-  ConvertWorker(Handle<Value> src, Handle<Value> options, NanCallback *callback) : NanAsyncWorker(callback), srcBlob(node::Buffer::Data(src), node::Buffer::Length(src)) {
+  ConvertWorker(Handle<Value> src, std::string operations, NanCallback *callback) : NanAsyncWorker(callback), srcBlob(node::Buffer::Data(src), node::Buffer::Length(src)) {
     // Create a Blob out of src buffer
-    this->Initialize(options);
+    this->Initialize(operations);
   }
 
-  ~ConvertWorker () {
-    delete [] opts;
-  }
+  void Initialize (std::string operations) {
+    const char* json = operations.c_str();
 
-  void Initialize (Handle<Value> options) {
-    const char* json = std::string(*NanUtf8String(options)).c_str();
-    d.Parse(json);
-    /*
-    opts_length = options->Length();
-    opts = new std::string[opts_length];
-    for (unsigned int i = 0; i < options->Length(); ++i) {
-      opts[i] = ToString(options->Get(i));
+    if (document.Parse(json).HasParseError()) {
+      fprintf(stderr, "\nError: %s\n", GetParseError_En(document.GetParseError()));
+      throw;
+    } else {
+      document.Parse(json);
     }
-    */
   }
 
   // Executed inside the worker-thread.
@@ -80,9 +41,6 @@ public:
   // here, so everything we need for input and output
   // should go on `this`.
   void Execute () {
-    //std::string method;
-    //std::string arg;
-    //Magick::GravityType gravity;
     Magick::InitializeMagick(NULL);
 
     try {
@@ -92,48 +50,28 @@ public:
         image.read(srcBlob);
       }
 
-      image.resize(d["resize"].GetString());
+      rapidjson::Value::ConstMemberIterator imageSize = document.FindMember("size");
+      if (imageSize != document.MemberEnd())
+        image.resize(imageSize->value.GetString());
 
-      /*
-      for (unsigned int i = 0; i < opts_length; ++i) {
-        method = opts[i];
+      rapidjson::Value::ConstMemberIterator imageQuality = document.FindMember("quality");
+      if (imageQuality != document.MemberEnd())
+        image.quality(imageQuality->value.GetUint());
 
-        if (method == "strip")            image.strip();
-        else if (method == "interlace")   image.interlaceType(ToInterlaceType(opts[++i]));
-        else if (method == "quality")     image.quality(std::stoi(opts[++i]));
-        else if (method == "format")      image.magick(opts[++i]);
-        else if (method == "resize")      image.resize(opts[++i]);
-        else if (method == "blurSigma")   image.blur(0, std::stoi(opts[++i]));
-        else if (method == "filter")      image.filterType(ToFilterType(opts[++i]));
-        else if (method == "font")        image.font(opts[++i]);
-        else if (method == "pointSize")   image.fontPointsize(size_t(atoi(opts[++i].c_str())));
-        else if (method == "drawText") {
-          std::string origin    = opts[++i];
-          std::string delimiter = "|";
-          std::string _x        = origin.substr(0, origin.find(delimiter));
-          std::string _y        = origin.substr(1, origin.find(delimiter));
-          std::string _text     = origin.substr(2, origin.find(delimiter));
-
-          image.draw(Magick::DrawableText(::atof(_x.c_str()), ::atof(_y.c_str()), _text));
-        }
-        else if (method == "extent") {
-          gravity = ToGravityType(opts[i + 2]);
-          // If there's no gravity
-          if (gravity == Magick::ForgetGravity) {
-            image.extent(opts[++i], Magick::Color("transparent"));
-          }
-          // If there is
-          else {
-            image.extent(opts[++i], Magick::Color("transparent"), gravity);
-            i++;
-          }
-        }
+      rapidjson::Value::ConstMemberIterator font = document.FindMember("font");
+      if (font != document.MemberEnd()) {
+        image.font(font->value["path"].GetString());
+        image.fontPointsize(font->value["pointSize"].GetDouble());
+        //image.fillColor(Magick::Color("rgb(53456, 35209, 30583)"));
+        image.draw(Magick::DrawableText(
+          font->value["xPos"].GetDouble(),
+          font->value["yPos"].GetDouble(),
+          font->value["value"].GetString()
+        ));
       }
-      */
+
     } catch (const std::exception &err) {
       SetErrorMessage(err.what());
-    } catch (...) {
-      SetErrorMessage("Convert failed in im-native");
     }
   }
 
@@ -153,9 +91,7 @@ private:
   std::string srcFilename;
   Magick::Blob srcBlob;
   Magick::Image image;
-  std::string *opts;
-  rapidjson::Document d;
-  //unsigned int opts_length;
+  rapidjson::Document document;
 };
 
 
@@ -167,9 +103,9 @@ NAN_METHOD(Convert) {
   Handle<Array> opts =args[1].As<Array>();
 
   if (args[0]->IsString()) {
-    NanAsyncQueueWorker(new ConvertWorker(ToString(args[0]), opts, callback));
+    NanAsyncQueueWorker(new ConvertWorker(ToString(args[0]), ToString(opts), callback));
   } else {
-    NanAsyncQueueWorker(new ConvertWorker(args[0], opts, callback));
+    NanAsyncQueueWorker(new ConvertWorker(args[0], ToString(opts), callback));
   }
 
   NanReturnUndefined();
