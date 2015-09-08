@@ -4,6 +4,9 @@
 #include <string.h>
 #include "./convert.h"
 
+#include "./rapidjson/reader.h"
+#include "./rapidjson/document.h"
+
 using namespace v8;
 
 static Magick::GravityType ToGravityType(std::string gravity) {
@@ -47,11 +50,11 @@ static std::string ToString(Handle<Value> str) {
 
 class ConvertWorker : public NanAsyncWorker {
 public:
-  ConvertWorker(std::string src, Handle<Array> options, NanCallback *callback) : NanAsyncWorker(callback), srcFilename(src) {
+  ConvertWorker(std::string src, Handle<Value> options, NanCallback *callback) : NanAsyncWorker(callback), srcFilename(src) {
     this->Initialize(options);
   }
 
-  ConvertWorker(Handle<Value> src, Handle<Array> options, NanCallback *callback) : NanAsyncWorker(callback), srcBlob(node::Buffer::Data(src), node::Buffer::Length(src)) {
+  ConvertWorker(Handle<Value> src, Handle<Value> options, NanCallback *callback) : NanAsyncWorker(callback), srcBlob(node::Buffer::Data(src), node::Buffer::Length(src)) {
     // Create a Blob out of src buffer
     this->Initialize(options);
   }
@@ -60,12 +63,16 @@ public:
     delete [] opts;
   }
 
-  void Initialize (Handle<Array> options) {
+  void Initialize (Handle<Value> options) {
+    const char* json = std::string(*NanUtf8String(options)).c_str();
+    d.Parse(json);
+    /*
     opts_length = options->Length();
     opts = new std::string[opts_length];
     for (unsigned int i = 0; i < options->Length(); ++i) {
       opts[i] = ToString(options->Get(i));
     }
+    */
   }
 
   // Executed inside the worker-thread.
@@ -73,9 +80,9 @@ public:
   // here, so everything we need for input and output
   // should go on `this`.
   void Execute () {
-    std::string method;
-    std::string arg;
-    Magick::GravityType gravity;
+    //std::string method;
+    //std::string arg;
+    //Magick::GravityType gravity;
     Magick::InitializeMagick(NULL);
 
     try {
@@ -85,6 +92,9 @@ public:
         image.read(srcBlob);
       }
 
+      image.resize(d["resize"].GetString());
+
+      /*
       for (unsigned int i = 0; i < opts_length; ++i) {
         method = opts[i];
 
@@ -119,6 +129,7 @@ public:
           }
         }
       }
+      */
     } catch (const std::exception &err) {
       SetErrorMessage(err.what());
     } catch (...) {
@@ -143,7 +154,8 @@ private:
   Magick::Blob srcBlob;
   Magick::Image image;
   std::string *opts;
-  unsigned int opts_length;
+  rapidjson::Document d;
+  //unsigned int opts_length;
 };
 
 
