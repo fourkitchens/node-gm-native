@@ -14,6 +14,25 @@ static std::string ToString(Handle<Value> str) {
   return std::string(*NanUtf8String(str));
 }
 
+static Magick::GravityType ToGravityType(std::string gravity) {
+
+  printf("%s\n", gravity.c_str());
+
+  if (gravity == "Center")         return Magick::CenterGravity;
+  else if (gravity == "East")      return Magick::EastGravity;
+  else if (gravity == "Forget")    return Magick::ForgetGravity;
+  else if (gravity == "NorthEast") return Magick::NorthEastGravity;
+  else if (gravity == "North")     return Magick::NorthGravity;
+  else if (gravity == "NorthWest") return Magick::NorthWestGravity;
+  else if (gravity == "SouthEast") return Magick::SouthEastGravity;
+  else if (gravity == "South")     return Magick::SouthGravity;
+  else if (gravity == "SouthWest") return Magick::SouthWestGravity;
+  else if (gravity == "West")      return Magick::WestGravity;
+  else {
+    return Magick::ForgetGravity;
+  }
+}
+
 class ConvertWorker : public NanAsyncWorker {
 public:
   ConvertWorker(std::string src, std::string operations, NanCallback *callback) : NanAsyncWorker(callback), srcFilename(src) {
@@ -41,6 +60,7 @@ public:
   // here, so everything we need for input and output
   // should go on `this`.
   void Execute () {
+    Magick::GravityType gravity;
     Magick::InitializeMagick(NULL);
 
     try {
@@ -50,8 +70,6 @@ public:
         image.read(srcBlob);
       }
 
-      //const Magick::Geometry& loadedImageSize = image.size();
-
       rapidjson::Value::ConstMemberIterator imageSize = document.FindMember("size");
       if (imageSize != document.MemberEnd())
         image.resize(imageSize->value.GetString());
@@ -59,6 +77,12 @@ public:
       rapidjson::Value::ConstMemberIterator imageQuality = document.FindMember("quality");
       if (imageQuality != document.MemberEnd())
         image.quality(imageQuality->value.GetUint());
+
+      rapidjson::Value::ConstMemberIterator imageGravity = document.FindMember("gravity");
+      if (imageGravity != document.MemberEnd()) {
+        gravity = ToGravityType(imageGravity->value.GetString());
+        image.draw(Magick::DrawableGravity(gravity));
+      }
 
       if (document.HasMember("imageOverlays")) {
         const rapidjson::Value& imageOverlays = document["imageOverlays"];
@@ -85,18 +109,29 @@ public:
       if (document.HasMember("textOverlays")) {
         const rapidjson::Value& textOverlays = document["textOverlays"];
         for (rapidjson::SizeType i = 0; i < textOverlays.Size(); i++) {
+
+          std::string text = textOverlays[i]["value"].GetString();
+          std::string printedText;
+          if (textOverlays[i].HasMember("trimLength")) {
+            double trimLength = textOverlays[i]["trimLength"].GetDouble();
+            printedText = text.length() > trimLength ?
+                                        text.substr (0,trimLength) + "..." :
+                                        text;
+          } else {
+            printedText = text;
+          }
+
           image.font(textOverlays[i]["path"].GetString());
           image.fontPointsize(textOverlays[i]["pointSize"].GetDouble());
           image.fillColor(Magick::ColorRGB("rgb(255, 255, 255)"));
           image.draw(Magick::DrawableText(
             textOverlays[i]["xPos"].GetDouble(),
             textOverlays[i]["yPos"].GetDouble(),
-            textOverlays[i]["value"].GetString()
+            printedText
           ));
 
         }
       }
-
 
     } catch (const std::exception &err) {
       SetErrorMessage(err.what());
@@ -122,8 +157,6 @@ private:
   rapidjson::Document document;
 };
 
-
-// Asynchronous access to the `Estimate()` function
 NAN_METHOD(Convert) {
   NanScope();
 
