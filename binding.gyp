@@ -4,7 +4,8 @@
       "target_name": "gm-native",
       "sources": [
         "src/main.cc",
-        "src/convert.cc"
+        "src/convert.cc",
+        "src/fetch.cc"
       ],
       "cflags!": [ '-fno-exceptions' ],
       "cflags_cc!": [ '-fno-exceptions' ],

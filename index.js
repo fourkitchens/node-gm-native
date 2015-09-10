@@ -33,6 +33,7 @@ ConvertStream.prototype._flush = function (cb) {
 };
 
 exports.convert = gm.convert;
+exports.fetch = gm.fetch;
 exports.streams = {
   convert: ConvertStream
 };
